@@ -1,21 +1,39 @@
-import { NavLink, useLocation } from 'react-router-dom';
-import { Home, Bus, Lightbulb, Trash2, MapPin, Activity, ShieldAlert } from 'lucide-react';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { Home, Bus, Lightbulb, Trash2, MapPin, Activity, ShieldAlert, LogOut } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { signOut } from '../services/auth';
+import { toast } from 'react-toastify';
+import { cityCoordinates } from '../utils/constants';
 
-const Sidebar = () => {
+const Sidebar = ({ user }) => {
   const location = useLocation();
-  const isAdmin = location.pathname.includes('/admin');
+  const navigate = useNavigate();
+  const searchParams = new URLSearchParams(location.search);
+  const selectedCity = searchParams.get('city');
+  const isSuperAdmin = user?.email === 'admin@sevakendra.com';
 
-  const navItems = isAdmin ? [
-    { name: 'Admin Dashboard', path: '/admin', icon: <ShieldAlert size={20} /> },
-  ] : [
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+      toast.info('Signed out successfully.');
+      navigate('/');
+    } catch (error) {
+      toast.error('Error signing out');
+    }
+  };
+
+  const navItems = [
     { name: 'Dashboard', path: '/dashboard', icon: <Home size={20} /> },
     { name: 'Transport System', path: '/transport', icon: <Bus size={20} /> },
     { name: 'Public Utilities', path: '/utilities', icon: <Lightbulb size={20} /> },
     { name: 'Dumping Issues', path: '/dumping', icon: <Trash2 size={20} /> },
   ];
 
-  const cities = ['Bangalore', 'Mysore', 'Hubli', 'Dharwad', 'Goa', 'Chennai', 'Kerala', 'Telangana', 'Mumbai'];
+  if (isSuperAdmin) {
+    navItems.push({ name: 'Admin Panel', path: '/admin', icon: <ShieldAlert size={20} /> });
+  }
+
+  const cities = Object.keys(cityCoordinates);
 
   return (
     <div className="glass-panel" style={{ width: '280px', margin: '16px 0 16px 16px', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 32px)', overflowY: 'auto' }}>
@@ -48,33 +66,54 @@ const Sidebar = () => {
           </NavLink>
         ))}
 
-        {!isAdmin && (
-          <div style={{ marginTop: 'auto', paddingTop: '20px' }}>
-            <h3 style={{ fontSize: '0.875rem', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '12px', paddingLeft: '8px' }}>
-              Service Areas
-            </h3>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-              {cities.map(city => (
-                <span key={city} style={{ fontSize: '0.75rem', padding: '4px 8px', background: 'rgba(0,0,0,0.05)', borderRadius: '12px', color: 'var(--text-muted)' }}>
-                  {city}
-                </span>
-              ))}
-            </div>
+        <div style={{ marginTop: 'auto', paddingTop: '20px' }}>
+          <h3 style={{ fontSize: '0.875rem', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '12px', paddingLeft: '8px' }}>
+            Service Areas
+          </h3>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+            {cities.map(city => (
+              <button 
+                key={city} 
+                onClick={() => navigate(`/dashboard?city=${city}`)}
+                style={{ 
+                  fontSize: '0.75rem', 
+                  padding: '4px 10px', 
+                  background: selectedCity === city ? 'var(--primary-color)' : 'rgba(0,0,0,0.05)', 
+                  borderRadius: '12px', 
+                  color: selectedCity === city ? 'white' : 'var(--text-muted)',
+                  border: 'none',
+                  cursor: 'pointer',
+                  transition: 'background 0.2s',
+                  fontWeight: selectedCity === city ? 600 : 400
+                }}
+              >
+                {city}
+              </button>
+            ))}
+          </div>
 
-            <div className="glass-card" style={{ marginTop: '20px', padding: '16px', position: 'relative', overflow: 'hidden' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                <MapPin size={16} color="var(--primary-color)" />
-                <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>Live Tracking</span>
-              </div>
-              <div style={{ height: '100px', background: '#e5e7eb', borderRadius: '8px', position: 'relative', overflow: 'hidden' }}>
-                {/* Dummy Map UI */}
-                <div style={{ position: 'absolute', inset: 0, opacity: 0.5, backgroundImage: 'radial-gradient(#9ca3af 1px, transparent 1px)', backgroundSize: '10px 10px' }} />
-                <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '12px', height: '12px', background: 'var(--primary-color)', borderRadius: '50%', boxShadow: '0 0 0 4px rgba(79, 70, 229, 0.3)' }} />
-                <motion.div animate={{ x: [0, 20, 0] }} transition={{ repeat: Infinity, duration: 2 }} style={{ position: 'absolute', top: '40%', left: '30%', width: '8px', height: '8px', background: 'var(--danger-color)', borderRadius: '50%' }} />
-              </div>
+          <div className="glass-card" style={{ marginTop: '20px', padding: '16px', position: 'relative', overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+              <MapPin size={16} color="var(--primary-color)" />
+              <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>Live Tracking</span>
+            </div>
+            <div style={{ height: '100px', background: '#e5e7eb', borderRadius: '8px', position: 'relative', overflow: 'hidden' }}>
+              {/* Dummy Map UI */}
+              <div style={{ position: 'absolute', inset: 0, opacity: 0.5, backgroundImage: 'radial-gradient(#9ca3af 1px, transparent 1px)', backgroundSize: '10px 10px' }} />
+              <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '12px', height: '12px', background: 'var(--primary-color)', borderRadius: '50%', boxShadow: '0 0 0 4px rgba(79, 70, 229, 0.3)' }} />
+              <motion.div animate={{ x: [0, 20, 0] }} transition={{ repeat: Infinity, duration: 2 }} style={{ position: 'absolute', top: '40%', left: '30%', width: '8px', height: '8px', background: 'var(--danger-color)', borderRadius: '50%' }} />
             </div>
           </div>
-        )}
+        </div>
+        
+        {/* Sign Out Button */}
+        <button 
+          onClick={handleSignOut}
+          className="glass-button-outline" 
+          style={{ marginTop: '16px', color: 'var(--danger-color)', borderColor: 'rgba(239, 68, 68, 0.2)', width: '100%' }}
+        >
+          <LogOut size={16} /> Sign Out
+        </button>
       </div>
     </div>
   );

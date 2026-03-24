@@ -3,10 +3,10 @@ import Sidebar from './Sidebar';
 import Navbar from './Navbar';
 import Footer from './Footer';
 
-const Layout = () => {
+const Layout = ({ user }) => {
   return (
     <div className="app-container">
-      <Sidebar />
+      <Sidebar user={user} />
       <div className="main-content">
         <Navbar />
         <div className="page-container">

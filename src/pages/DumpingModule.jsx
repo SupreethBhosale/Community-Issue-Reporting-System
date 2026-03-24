@@ -1,38 +1,105 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Trash2, Camera, MapPin, ChevronUp } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
+import { Trash2, Camera, MapPin, ChevronUp, Navigation } from 'lucide-react';
 import { toast } from 'react-toastify';
+import { createIssue, listenToIssuesByCategory, upvoteIssue } from '../services/firestore';
+import { uploadImage } from '../services/storage';
 
-const DumpingModule = () => {
-  const [location, setLocation] = useState('');
+const DumpingModule = ({ user }) => {
+  const routerLocation = useLocation();
+  const searchParams = new URLSearchParams(routerLocation.search);
 
-  const [issues, setIssues] = useState([
-    { id: 1, location: 'Behind City Mall, MG Road', votes: 124, status: 'Pending', time: '2 hours ago' },
-    { id: 2, location: 'Empty Plot near Lake View', votes: 89, status: 'In Progress', time: '5 hours ago' },
-    { id: 3, location: 'Corner of 4th Street, Sector 2', votes: 42, status: 'Pending', time: '1 day ago' },
-  ]);
+  const [locationStr, setLocationStr] = useState('');
+  const [latitude, setLatitude] = useState(searchParams.get('lat') ? parseFloat(searchParams.get('lat')) : null);
+  const [longitude, setLongitude] = useState(searchParams.get('lng') ? parseFloat(searchParams.get('lng')) : null);
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [locationError, setLocationError] = useState('');
+  const [file, setFile] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [issues, setIssues] = useState([]);
 
-  const handleUpvote = (id) => {
-    setIssues(issues.map(issue => {
-      if (issue.id === id) {
-        return { ...issue, votes: issue.votes + 1 };
-      }
-      return issue;
-    }).sort((a, b) => b.votes - a.votes)); // Priority system: Sort by votes
+  useEffect(() => {
+    if (latitude && longitude) {
+      toast.success(`Coordinates loaded from map: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
+    }
+  }, [latitude, longitude]);
+
+  useEffect(() => {
+    const unsubscribe = listenToIssuesByCategory('Dumping', setIssues);
+    return () => unsubscribe();
+  }, []);
+
+  const handleGetCurrentLocation = () => {
+    setLocationLoading(true);
+    setLocationError('');
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setLatitude(position.coords.latitude);
+          setLongitude(position.coords.longitude);
+          toast.success('Location fetched successfully');
+          setLocationLoading(false);
+        },
+        (error) => {
+          setLocationLoading(false);
+          if (error.code === 1) {
+            setLocationError("Location permission denied. Please allow access in browser settings.");
+            toast.error("Location permission denied. Please allow access.");
+          } else if (error.code === 2) {
+            setLocationError("Location unavailable. Try again.");
+            toast.error("Location unavailable. Try again.");
+          } else if (error.code === 3) {
+            setLocationError("Location request timed out.");
+            toast.error("Location request timed out.");
+          }
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      );
+    } else {
+      toast.error('Geolocation not supported.');
+      setLocationLoading(false);
+    }
   };
 
-  const handleSubmit = (e) => {
+  const handleUpvote = async (id) => {
+    try {
+      if (user) {
+        await upvoteIssue(id, user.uid);
+      } else {
+        toast.info('Please log in to upvote issues.');
+      }
+    } catch (error) {
+      toast.error('Failed to upvote');
+    }
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    toast.success('Dumping spot reported! It is now open for community priority voting.');
-    const newIssue = {
-      id: Date.now(),
-      location: location || 'Current Location',
-      votes: 1,
-      status: 'Pending',
-      time: 'Just now'
-    };
-    setIssues([newIssue, ...issues].sort((a, b) => b.votes - a.votes));
-    setLocation('');
+    setLoading(true);
+    try {
+      let imageUrl = null;
+      if (file) {
+        imageUrl = await uploadImage(file, 'dumping_issues');
+      }
+
+      await createIssue({
+        category: 'Dumping',
+        location: locationStr || 'Current Location',
+        latitude,
+        longitude,
+        imageUrl
+      });
+
+      toast.success('Dumping spot reported! It is now open for community priority voting.');
+      setLocationStr('');
+      setLatitude(null);
+      setLongitude(null);
+      setFile(null);
+    } catch (error) {
+      toast.error('Failed to report issue');
+    }
+    setLoading(false);
   };
 
   return (
@@ -52,20 +119,38 @@ const DumpingModule = () => {
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <div>
               <label style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>Upload Photo</label>
-              <div className="glass-panel" style={{ borderStyle: 'dashed', borderWidth: '2px', padding: '32px', textAlign: 'center', cursor: 'pointer', background: 'rgba(255,255,255,0.5)' }}>
+              <div className="glass-panel" style={{ position: 'relative', borderStyle: 'dashed', borderWidth: '2px', padding: '32px', textAlign: 'center', cursor: 'pointer', background: 'rgba(255,255,255,0.5)' }}>
+                <input type="file" accept="image/*" onChange={(e) => setFile(e.target.files[0])} style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }} />
                 <Camera size={32} color="var(--text-muted)" style={{ margin: '0 auto 8px' }} />
-                <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Upload evidence</p>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>{file ? file.name : 'Upload evidence'}</p>
               </div>
             </div>
             <div>
-              <label style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>Location</label>
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <input type="text" className="glass-input" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Auto detecting..." />
-                <button type="button" className="glass-button-outline" title="Use current location"><MapPin size={18} /></button>
+              <label style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>Location Details</label>
+              <div style={{ position: 'relative', marginBottom: '8px' }}>
+                <MapPin size={18} style={{ position: 'absolute', left: '12px', top: '12px', color: '#9ca3af' }} />
+                <input type="text" className="glass-input" style={{ paddingLeft: '40px' }} value={locationStr} onChange={(e) => setLocationStr(e.target.value)} placeholder="Landmark or Street Name" required />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    {latitude && longitude ? `📍 ${latitude.toFixed(4)}, ${longitude.toFixed(4)}` : 'No coordinates attached'}
+                  </span>
+                  <button type="button" disabled={locationLoading} onClick={handleGetCurrentLocation} className="glass-button-outline" style={{ padding: '4px 12px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    {locationLoading ? <span style={{ width: '12px', height: '12px', border: '2px solid var(--primary-color)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} /> : <Navigation size={14} />} 
+                    {locationLoading ? 'Fetching...' : 'Get GPS'}
+                  </button>
+                </div>
+                {locationError && (
+                  <div style={{ padding: '8px', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger-color)', borderRadius: '4px', fontSize: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>{locationError}</span>
+                    <button type="button" onClick={handleGetCurrentLocation} style={{ background: 'none', border: 'none', color: 'var(--danger-color)', textDecoration: 'underline', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}>Retry</button>
+                  </div>
+                )}
               </div>
             </div>
-            <button type="submit" className="glass-button" style={{ marginTop: '8px', width: '100%', padding: '12px' }}>
-              Report Issue
+            <button disabled={loading} type="submit" className="glass-button" style={{ marginTop: '8px', width: '100%', padding: '12px' }}>
+              {loading ? 'Submitting...' : 'Report Issue'}
             </button>
           </form>
         </div>
@@ -77,8 +162,8 @@ const DumpingModule = () => {
              <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Sorted by highest votes</span>
           </div>
           
-          {issues.map((issue, i) => (
-            <motion.div key={issue.id} initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ delay: i * 0.1 }}>
+          {Array.isArray(issues) && issues.map((issue, i) => (
+            <motion.div key={String(issue?.id || Math.random())} initial={{ x: 20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ delay: i * 0.1 }}>
               <div className="glass-card" style={{ padding: '20px', display: 'flex', gap: '24px', alignItems: 'center' }}>
                 
                 {/* Voting Block */}
@@ -86,18 +171,18 @@ const DumpingModule = () => {
                   <button onClick={() => handleUpvote(issue.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--primary-color)' }}>
                     <ChevronUp size={28} />
                   </button>
-                  <span style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-main)' }}>{issue.votes}</span>
+                  <span style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-main)' }}>{Number(issue?.votes || 0)}</span>
                 </div>
 
                 <div style={{ flex: 1 }}>
-                  <h3 style={{ fontSize: '1.1rem', marginBottom: '8px' }}>Location: {issue.location}</h3>
+                  <h3 style={{ fontSize: '1.1rem', marginBottom: '8px' }}>Location: {String(issue?.location || 'Unknown')}</h3>
                   <div style={{ display: 'flex', gap: '16px', fontSize: '0.875rem', color: 'var(--text-muted)' }}>
-                    <span>Reported {issue.time}</span>
+                    <span>Reported {issue?.createdAt?.seconds ? new Date(issue.createdAt.seconds * 1000).toLocaleDateString() : 'Just now'}</span>
                     <span style={{ 
-                      color: issue.status === 'Pending' ? 'var(--warning-color)' : 'var(--primary-color)',
+                      color: issue?.status === 'Pending' ? 'var(--warning-color)' : 'var(--primary-color)',
                       fontWeight: 600
                     }}>
-                      • {issue.status}
+                      • {String(issue?.status || 'Pending')}
                     </span>
                   </div>
                 </div>

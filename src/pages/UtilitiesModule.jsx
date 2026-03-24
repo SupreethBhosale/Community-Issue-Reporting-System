@@ -1,31 +1,95 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Lightbulb, MapPin, CheckCircle } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
+import { Lightbulb, MapPin, CheckCircle, Navigation } from 'lucide-react';
 import { toast } from 'react-toastify';
+import { createIssue, listenToIssuesByCategory } from '../services/firestore';
 
 const UtilitiesModule = () => {
-  const [issueType, setIssueType] = useState('Streetlight');
+  const routerLocation = useLocation();
+  const searchParams = new URLSearchParams(routerLocation.search);
+
+  const [issueType, setIssueType] = useState('Streetlight Issues');
   const [location, setLocation] = useState('');
   const [pincode, setPincode] = useState('');
+  const [latitude, setLatitude] = useState(searchParams.get('lat') ? parseFloat(searchParams.get('lat')) : null);
+  const [longitude, setLongitude] = useState(searchParams.get('lng') ? parseFloat(searchParams.get('lng')) : null);
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [locationError, setLocationError] = useState('');
   const [showConfirmation, setShowConfirmation] = useState(false);
+  const [trackedIssues, setTrackedIssues] = useState([]);
+  const [loading, setLoading] = useState(false);
 
-  // Mock tracking data
-  const trackedIssues = [
-    { id: '#UT-1042', type: 'Streetlight', location: 'Indiranagar 100ft Rd', status: 'Pending', date: 'Oct 24, 2023' },
-    { id: '#UT-0931', type: 'Sewage', location: 'Koramangala 4th Block', status: 'Resolved', date: 'Oct 20, 2023' },
-  ];
+  useEffect(() => {
+    if (latitude && longitude) {
+      toast.success(`Coordinates loaded from map: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
+    }
+  }, [latitude, longitude]);
+
+  useEffect(() => {
+    const unsubscribe = listenToIssuesByCategory('Utilities', setTrackedIssues);
+    return () => unsubscribe();
+  }, []);
+
+  const handleGetCurrentLocation = () => {
+    setLocationLoading(true);
+    setLocationError('');
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setLatitude(position.coords.latitude);
+          setLongitude(position.coords.longitude);
+          toast.success('Location fetched successfully');
+          setLocationLoading(false);
+        },
+        (error) => {
+          setLocationLoading(false);
+          if (error.code === 1) {
+            setLocationError("Location permission denied. Please allow access in browser settings.");
+            toast.error("Location permission denied. Please allow access.");
+          } else if (error.code === 2) {
+            setLocationError("Location unavailable. Try again.");
+            toast.error("Location unavailable. Try again.");
+          } else if (error.code === 3) {
+            setLocationError("Location request timed out.");
+            toast.error("Location request timed out.");
+          }
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      );
+    } else {
+      toast.error('Geolocation not supported.');
+      setLocationLoading(false);
+    }
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
     setShowConfirmation(true);
   };
 
-  const confirmSubmit = () => {
+  const confirmSubmit = async () => {
     setShowConfirmation(false);
-    toast.success('Public utility issue reported successfully!');
-    setIssueType('Streetlight');
-    setLocation('');
-    setPincode('');
+    setLoading(true);
+    try {
+      await createIssue({
+        category: 'Utilities',
+        type: issueType,
+        location,
+        pincode,
+        latitude,
+        longitude
+      });
+      toast.success('Public utility issue reported successfully!');
+      setIssueType('Streetlight Issues');
+      setLocation('');
+      setPincode('');
+      setLatitude(null);
+      setLongitude(null);
+    } catch (error) {
+      toast.error('Failed to submit request');
+    }
+    setLoading(false);
   };
 
   return (
@@ -50,9 +114,26 @@ const UtilitiesModule = () => {
             </div>
             <div>
               <label style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>Location Details</label>
-              <div style={{ position: 'relative' }}>
+              <div style={{ position: 'relative', marginBottom: '8px' }}>
                 <MapPin size={18} style={{ position: 'absolute', left: '12px', top: '12px', color: '#9ca3af' }} />
                 <input type="text" className="glass-input" style={{ paddingLeft: '40px' }} value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Landmark or Street Name" required />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    {latitude && longitude ? `📍 ${latitude.toFixed(4)}, ${longitude.toFixed(4)}` : 'No coordinates attached'}
+                  </span>
+                  <button type="button" disabled={locationLoading} onClick={handleGetCurrentLocation} className="glass-button-outline" style={{ padding: '4px 12px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    {locationLoading ? <span style={{ width: '12px', height: '12px', border: '2px solid var(--primary-color)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} /> : <Navigation size={14} />} 
+                    {locationLoading ? 'Fetching...' : 'Get GPS'}
+                  </button>
+                </div>
+                {locationError && (
+                  <div style={{ padding: '8px', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger-color)', borderRadius: '4px', fontSize: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>{locationError}</span>
+                    <button type="button" onClick={handleGetCurrentLocation} style={{ background: 'none', border: 'none', color: 'var(--danger-color)', textDecoration: 'underline', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}>Retry</button>
+                  </div>
+                )}
               </div>
             </div>
             <div>
@@ -69,11 +150,12 @@ const UtilitiesModule = () => {
         <div className="glass-card" style={{ padding: '32px' }}>
           <h2 style={{ fontSize: '1.5rem', marginBottom: '24px' }}>Your Reports</h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {trackedIssues.map(issue => (
-               <div key={issue.id} className="glass-panel" style={{ padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            {Array.isArray(trackedIssues) && trackedIssues.length === 0 && <p style={{ color: 'var(--text-muted)' }}>No issues reported yet.</p>}
+            {Array.isArray(trackedIssues) && trackedIssues.map(issue => (
+               <div key={String(issue?.id || Math.random())} className="glass-panel" style={{ padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                  <div>
-                   <h3 style={{ fontSize: '1.1rem', marginBottom: '4px' }}>{issue.type}</h3>
-                   <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>{issue.location} &bull; {issue.date}</p>
+                   <h3 style={{ fontSize: '1.1rem', marginBottom: '4px' }}>{String(issue?.type || issue?.category || 'Unknown Type')}</h3>
+                   <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>{String(issue?.location || 'Unknown Location')} &bull; {issue?.createdAt?.seconds ? new Date(issue.createdAt.seconds * 1000).toLocaleDateString() : 'Just now'}</p>
                  </div>
                  <div style={{ textAlign: 'right' }}>
                    <span style={{ 
@@ -82,12 +164,12 @@ const UtilitiesModule = () => {
                      borderRadius: '12px', 
                      fontSize: '0.75rem', 
                      fontWeight: 600,
-                     background: issue.status === 'Resolved' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)',
-                     color: issue.status === 'Resolved' ? 'var(--success-color)' : 'var(--warning-color)'
+                     background: issue?.status === 'Resolved' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)',
+                     color: issue?.status === 'Resolved' ? 'var(--success-color)' : 'var(--warning-color)'
                    }}>
-                     {issue.status}
+                     {String(issue?.status || 'Pending')}
                    </span>
-                   <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>{issue.id}</p>
+                   <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>{String(issue?.id || '').slice(0, 8)}</p>
                  </div>
                </div>
             ))}
@@ -105,8 +187,8 @@ const UtilitiesModule = () => {
             <h2 style={{ fontSize: '1.5rem', marginBottom: '8px' }}>Confirm Submission</h2>
             <p style={{ color: 'var(--text-muted)', marginBottom: '24px' }}>Are you sure the details provided are correct? A team will be dispatched based on this report.</p>
             <div style={{ display: 'flex', gap: '16px' }}>
-              <button onClick={() => setShowConfirmation(false)} className="glass-button-outline" style={{ flex: 1, borderColor: '#d1d5db', color: 'var(--text-main)' }}>Cancel</button>
-              <button onClick={confirmSubmit} className="glass-button" style={{ flex: 1 }}>Submit</button>
+              <button disabled={loading} onClick={() => setShowConfirmation(false)} className="glass-button-outline" style={{ flex: 1, borderColor: '#d1d5db', color: 'var(--text-main)' }}>Cancel</button>
+              <button disabled={loading} onClick={confirmSubmit} className="glass-button" style={{ flex: 1 }}>{loading ? 'Submitting...' : 'Submit'}</button>
             </div>
           </motion.div>
         </div>

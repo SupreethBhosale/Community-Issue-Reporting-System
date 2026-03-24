@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Leaf, Mail, Lock, Phone, User, ExternalLink } from 'lucide-react';
 import { toast } from 'react-toastify';
+import { registerWithEmail, loginWithEmail, loginWithGoogle, setupRecaptcha, sendOTP, verifyOTP } from '../services/auth';
+import { auth } from '../services/firebase';
 
 const LandingPage = () => {
   const [isLogin, setIsLogin] = useState(true);
@@ -10,19 +12,87 @@ const LandingPage = () => {
   const [isAdminLogin, setIsAdminLogin] = useState(false);
   const navigate = useNavigate();
 
-  const handleLogin = (e) => {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [otp, setOtp] = useState('');
+  const [otpSent, setOtpSent] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (authMethod === 'phone') {
+      setupRecaptcha('recaptcha-container');
+    }
+  }, [authMethod, isLogin]);
+
+  const handleAuth = async (e) => {
     e.preventDefault();
-    toast.success('Successfully logged in!');
-    if (isAdminLogin) {
-      navigate('/admin');
-    } else {
+    setLoading(true);
+
+    if (auth.app.options.apiKey === "YOUR_KEY") {
+      toast.error("⚠️ Setup Required: Please add your real Firebase API Key in src/services/firebase.js to enable authentication.");
+      setLoading(false);
+      return;
+    }
+    
+    try {
+      if (isAdminLogin) {
+        // Admin uses standard email/password (in reality, check role in Firestore later)
+        await loginWithEmail(email, password);
+        toast.success('Admin logged in successfully!');
+        navigate('/admin');
+      } else if (authMethod === 'email') {
+        if (isLogin) {
+          await loginWithEmail(email, password);
+          toast.success('Successfully logged in!');
+        } else {
+          await registerWithEmail(email, password, name);
+          toast.success('Account created successfully!');
+        }
+        
+        if (email.trim().toLowerCase() === 'admin@sevakendra.com') {
+          navigate('/admin');
+        } else {
+          navigate('/dashboard');
+        }
+      } else if (authMethod === 'phone') {
+        if (!otpSent) {
+          await sendOTP(phoneNumber);
+          setOtpSent(true);
+          toast.success('OTP sent to your phone!');
+          setLoading(false);
+          return;
+        } else {
+          await verifyOTP(otp);
+          toast.success('Phone verified successfully!');
+          navigate('/dashboard');
+        }
+      }
+    } catch (error) {
+      toast.error(error.message);
+    }
+    
+    setLoading(false);
+  };
+
+  const handleGoogleLogin = async () => {
+    if (auth.app.options.apiKey === "YOUR_KEY") {
+      toast.error("⚠️ Setup Required: Please add your real Firebase API Key in src/services/firebase.js to enable Google login.");
+      return;
+    }
+
+    try {
+      await loginWithGoogle();
+      toast.success('Successfully logged in with Google!');
       navigate('/dashboard');
+    } catch (error) {
+      toast.error(error.message);
     }
   };
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      {/* Landing Navbar */}
       <nav className="glass-panel" style={{ margin: '16px', padding: '16px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', zIndex: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--primary-color)', fontWeight: 'bold', fontSize: '1.5rem' }}>
           <Leaf size={28} />
@@ -34,10 +104,7 @@ const LandingPage = () => {
         </div>
       </nav>
 
-      {/* Main Content Split */}
       <div style={{ flex: 1, display: 'flex', padding: '0 16px', gap: '16px', marginBottom: '16px' }}>
-        
-        {/* Left: Auth Form */}
         <motion.div 
           initial={{ opacity: 0, x: -50 }}
           animate={{ opacity: 1, x: 0 }}
@@ -56,26 +123,26 @@ const LandingPage = () => {
 
           <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', background: 'rgba(0,0,0,0.05)', padding: '4px', borderRadius: '12px' }}>
             <button 
-              onClick={() => { setIsLogin(true); setIsAdminLogin(false); }}
+              onClick={() => { setIsLogin(true); setIsAdminLogin(false); setAuthMethod('email'); }}
               style={{ flex: 1, padding: '8px', borderRadius: '8px', border: 'none', background: isLogin && !isAdminLogin ? 'white' : 'transparent', fontWeight: 600, cursor: 'pointer', boxShadow: isLogin && !isAdminLogin ? '0 2px 8px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.2s' }}
             >
               User Login
             </button>
             <button 
-              onClick={() => setIsLogin(false)}
+              onClick={() => { setIsLogin(false); setIsAdminLogin(false); setAuthMethod('email'); }}
               style={{ flex: 1, padding: '8px', borderRadius: '8px', border: 'none', background: !isLogin ? 'white' : 'transparent', fontWeight: 600, cursor: 'pointer', boxShadow: !isLogin ? '0 2px 8px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.2s' }}
             >
               Sign Up
             </button>
             <button 
-              onClick={() => { setIsLogin(true); setIsAdminLogin(true); }}
+              onClick={() => { setIsLogin(true); setIsAdminLogin(true); setAuthMethod('email'); }}
               style={{ flex: 1, padding: '8px', borderRadius: '8px', border: 'none', background: isAdminLogin ? 'white' : 'transparent', fontWeight: 600, cursor: 'pointer', boxShadow: isAdminLogin ? '0 2px 8px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.2s' }}
             >
               Admin
             </button>
           </div>
 
-          {!isAdminLogin && isLogin && (
+          {!isAdminLogin && (
             <div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
               <button 
                 onClick={() => setAuthMethod('email')}
@@ -88,30 +155,31 @@ const LandingPage = () => {
                 onClick={() => setAuthMethod('phone')}
                 className={authMethod === 'phone' ? 'glass-button' : 'glass-button-outline'}
                 style={{ flex: 1 }}
+                id="recaptcha-container"
               >
                 <Phone size={16} /> Phone
               </button>
             </div>
           )}
 
-          <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {!isLogin && (
+          <form onSubmit={handleAuth} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {!isLogin && authMethod === 'email' && (
               <div>
                 <label style={{ display: 'block', marginBottom: '4px', fontSize: '0.875rem', fontWeight: 500 }}>Full Name</label>
                 <div style={{ position: 'relative' }}>
                   <User size={18} style={{ position: 'absolute', left: '12px', top: '12px', color: '#9ca3af' }} />
-                  <input type="text" className="glass-input" style={{ paddingLeft: '40px' }} placeholder="John Doe" required />
+                  <input type="text" value={name} onChange={e => setName(e.target.value)} className="glass-input" style={{ paddingLeft: '40px' }} placeholder="John Doe" required />
                 </div>
               </div>
             )}
 
-            {authMethod === 'email' || isAdminLogin || !isLogin ? (
+            {authMethod === 'email' || isAdminLogin ? (
               <>
                 <div>
                   <label style={{ display: 'block', marginBottom: '4px', fontSize: '0.875rem', fontWeight: 500 }}>Email Address</label>
                   <div style={{ position: 'relative' }}>
                     <Mail size={18} style={{ position: 'absolute', left: '12px', top: '12px', color: '#9ca3af' }} />
-                    <input type="email" className="glass-input" style={{ paddingLeft: '40px' }} placeholder="you@example.com" required />
+                    <input type="email" value={email} onChange={e => setEmail(e.target.value)} className="glass-input" style={{ paddingLeft: '40px' }} placeholder="you@example.com" required />
                   </div>
                 </div>
                 <div>
@@ -121,7 +189,7 @@ const LandingPage = () => {
                   </div>
                   <div style={{ position: 'relative' }}>
                     <Lock size={18} style={{ position: 'absolute', left: '12px', top: '12px', color: '#9ca3af' }} />
-                    <input type="password" className="glass-input" style={{ paddingLeft: '40px' }} placeholder="••••••••" required />
+                    <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="glass-input" style={{ paddingLeft: '40px' }} placeholder="••••••••" required />
                   </div>
                 </div>
               </>
@@ -131,31 +199,23 @@ const LandingPage = () => {
                   <label style={{ display: 'block', marginBottom: '4px', fontSize: '0.875rem', fontWeight: 500 }}>Phone Number</label>
                   <div style={{ position: 'relative' }}>
                     <Phone size={18} style={{ position: 'absolute', left: '12px', top: '12px', color: '#9ca3af' }} />
-                    <input type="tel" className="glass-input" style={{ paddingLeft: '40px' }} placeholder="+91 98765 43210" required />
+                    <input type="tel" value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)} disabled={otpSent} className="glass-input" style={{ paddingLeft: '40px' }} placeholder="+1 234 567 8900" required />
                   </div>
                 </div>
-                <div>
-                  <label style={{ display: 'block', marginBottom: '4px', fontSize: '0.875rem', fontWeight: 500 }}>OTP</label>
-                  <div style={{ position: 'relative' }}>
-                    <Lock size={18} style={{ position: 'absolute', left: '12px', top: '12px', color: '#9ca3af' }} />
-                    <input type="text" className="glass-input" style={{ paddingLeft: '40px' }} placeholder="Enter 6-digit OTP" required />
+                {otpSent && (
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '4px', fontSize: '0.875rem', fontWeight: 500 }}>OTP</label>
+                    <div style={{ position: 'relative' }}>
+                      <Lock size={18} style={{ position: 'absolute', left: '12px', top: '12px', color: '#9ca3af' }} />
+                      <input type="text" value={otp} onChange={e => setOtp(e.target.value)} className="glass-input" style={{ paddingLeft: '40px' }} placeholder="Enter 6-digit OTP" required />
+                    </div>
                   </div>
-                  <div style={{ textAlign: 'right', marginTop: '8px' }}>
-                    <a href="#" style={{ fontSize: '0.75rem' }}>Resend OTP</a>
-                  </div>
-                </div>
+                )}
               </>
             )}
 
-            {isLogin && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <input type="checkbox" id="remember" />
-                <label htmlFor="remember" style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Remember me</label>
-              </div>
-            )}
-
-            <button type="submit" className="glass-button" style={{ width: '100%', padding: '12px', marginTop: '8px' }}>
-              {isLogin ? 'Sign In' : 'Create Account'}
+            <button type="submit" disabled={loading} className="glass-button" style={{ width: '100%', padding: '12px', marginTop: '8px' }}>
+              {loading ? 'Processing...' : (authMethod === 'phone' && !otpSent ? 'Send OTP' : (isLogin ? 'Sign In' : 'Create Account'))}
             </button>
 
             {isLogin && !isAdminLogin && (
@@ -165,7 +225,7 @@ const LandingPage = () => {
                   <span style={{ padding: '0 8px', fontSize: '0.875rem' }}>or continue with</span>
                   <div style={{ flex: 1, height: '1px', background: '#d1d5db' }}></div>
                 </div>
-                <button type="button" className="glass-button-outline" style={{ width: '100%', padding: '12px', color: 'var(--text-main)', borderColor: '#d1d5db' }}>
+                <button type="button" onClick={handleGoogleLogin} className="glass-button-outline" style={{ width: '100%', padding: '12px', color: 'var(--text-main)', borderColor: '#d1d5db' }}>
                   <svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg">
                     <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
                     <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.16v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
@@ -179,7 +239,6 @@ const LandingPage = () => {
           </form>
         </motion.div>
 
-        {/* Right: Illustration */}
         <motion.div 
           initial={{ opacity: 0, x: 50 }}
           animate={{ opacity: 1, x: 0 }}
@@ -216,7 +275,6 @@ const LandingPage = () => {
         </motion.div>
       </div>
 
-      {/* Footer is already defined globally but here we insert a simpler version for landing as specified */}
       <footer className="glass-panel" style={{ margin: '0 16px 16px', padding: '16px', textAlign: 'center' }}>
          <div style={{ display: 'flex', justifyContent: 'center', gap: '24px', marginBottom: '8px' }}>
           <a href="#" style={{ color: 'var(--text-muted)' }}>Twitter</a>
